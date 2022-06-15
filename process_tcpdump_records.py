@@ -8,10 +8,20 @@ import datetime
 from time import sleep
 import re
 import config
-import pickle
 
 
 class TcpdumpTools():
+    def __init__(self) -> None:
+        with open('gtld.txt') as f:
+            gtld_list: list[str] = [s[:-1] for s in f.readlines()]
+            self.gtld_set: set[str] = set(gtld_list)
+
+    def is_gtld(self, domain_segment: str) -> bool:
+        if domain_segment in self.gtld_set:
+            return True
+        else:
+            return False
+
     def get_domain_by_dig(self, ip_addr_str: str) -> str:
         stdout: str = str(subprocess.run(
             ['dig', '-x', ip_addr_str, '+short'], capture_output=True).stdout)
@@ -33,6 +43,7 @@ class TcpdumpTools():
             return None
         nickname_dic: dict[str, str] = {
             'dropbox': 'Dropbox',
+            'googlevideo': 'YouTube',
             'aws': 'AWS',
             'amazon': 'Amazon',
             'slack': 'Slack',
@@ -49,19 +60,20 @@ class TcpdumpTools():
         splitted: list[str] = domain.split('.')
         idx: int = len(splitted) - 1
         for idx in reversed(range(len(splitted))):
-            if len(splitted[idx]) > 3:
+            if (len(splitted[idx]) > 3) and (not self.is_gtld(splitted[idx])):
                 return splitted[idx].capitalize()
         else:
             return domain.capitalize()
 
-    # def is_file_in_use(self, file: str) -> bool:
-    #     try:
-    #         os.rename(file, file + '_')
-    #         os.rename(file + '_', file)
-    #     except PermissionError:
-    #         return True
-    #     else:
-    #         return False
+    def is_twitter(self, ip_addr: str) -> bool:
+        obj = ipaddress.ip_address(ip_addr)
+        if not isinstance(obj, ipaddress.IPv4Address):
+            return False
+        if (obj >= ipaddress.ip_address('104.244.40.0')) and (
+                obj <= ipaddress.ip_address('104.244.47.255')):
+            return True
+        else:
+            return False
 
 
 class SQLTools(TcpdumpTools):
@@ -124,6 +136,8 @@ class SQLTools(TcpdumpTools):
         self.connection.commit()
 
     def convert_ip_addr_to_domain(self, ip_addr_str: str) -> str:
+        if self.is_twitter(ip_addr_str):
+            return 'twitter.com'
         # Search IP address to from database
         res_from_db: tuple[int, str, bool] = self.search_ip_addr_from_dns_records(ip_addr_str)
         if res_from_db is not None:  # Already in the database
@@ -213,14 +227,10 @@ class TcpdumpRecorder(SQLTools):
         os.remove(file)
 
     def iterate_files(self) -> None:
-        # files = glob.glob('./tokuran*.pcap')
         files: list[str] = glob.glob('./*.pcap')
         for file in files:
             print(file)
             print('filesize:', os.path.getsize(file))
-            # if self.is_file_in_use(file):
-            #     continue
-            # self.process_file(file)
             try:
                 self.process_file(file)
             except BaseException:
